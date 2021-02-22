@@ -35,7 +35,7 @@ def print_header(seq_lens, windowed=False):
         lengths = defaultdict(lambda:0)
         for k,v in seq_lens.items():
             seq_id = ':'.join(k.split(':')[:-1])
-            offset = int(k.split(':')[-1].split('-'))
+            offset = int(k.split(':')[-1].split('-')[0])
             length = offset + v
             lengths[seq_id] = max(lengths[seq_id],length)
         lengths = dict(lengths)
@@ -74,7 +74,7 @@ def print_hits(hits, seq_lens, windowed=False):
 
                 if windowed:
                     seq_name = ':'.join(seq_id.split(':')[:-1])
-                    offset = int(seq_id.split(':')[-1])
+                    offset = int(seq_id.split(':')[-1].split('-')[0])
                     start += offset
                     end += offset
                 else:

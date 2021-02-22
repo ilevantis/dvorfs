@@ -136,7 +136,7 @@ def main(args):
 
     if args.windowed:
         # parse the target seq id of window to calculate real coordinates on the contig and real contig name
-        df['wstart'] = df['target'].apply(lambda x: int(x.split(':')[1]))
+        df['wstart'] = df['target'].apply(lambda x: int(x.split(':')[1].split('-')[0]))
         df['target'] = df['target'].apply(lambda x: x.split(':')[0])
         df['tstart'] = df['tstart'] + df['wstart']
         df['tend'] = df['tend'] + df['wstart']
