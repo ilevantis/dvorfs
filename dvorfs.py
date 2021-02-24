@@ -2,6 +2,7 @@
 from subprocess import Popen, PIPE, DEVNULL
 import sys, os, shutil, argparse
 from os import path
+from hmmer2bed import make_hmmer_presearchbed
 
 ###
 
@@ -37,6 +38,7 @@ def run_pipeline(cmd_list, stdout):
     return output, err, exit_code
 
 
+
 def hmmconversion(hmminput, hmm2db, hmm3db, type):
 
     if type == 'seed':
@@ -70,9 +72,12 @@ def hmmconversion(hmminput, hmm2db, hmm3db, type):
     return hmm2db, hmm3db
 
 
-def hmmer_pre_search(dbfafai, dbfasta, hmm3db,
-                        threads=2):
 
+def hmmer_pre_search(dbfafai, dbfasta, hmm3db,
+    threads=2, slop=3000, e_cutoff=1e-2):
+
+    # window the input fasta and replace ':' with '$' in the fasta IDs
+    # so transeq doesn't mess with the IDs
     cmds = [
         ['bedtools', 'makewindows', '-g', dbfafai, '-w', '20000', '-s', '15000'],
         ['bedtools', 'getfasta', '-fi', dbfasta, '-bed', '-'],
@@ -85,36 +90,39 @@ def hmmer_pre_search(dbfafai, dbfasta, hmm3db,
         exit_info = run_pipeline(cmds, f)
 
 
+    # translate the windows using EMBOSS tools transeq
     tr_fa_name = path.join(workdir,'tr.faa')
     cmd = ['transeq', '-frame', '6', '-alternative', window_fa_name, tr_fa_name]
     p = Popen(cmd)
     exit_code = p.wait()
     if exit_code != 0: raise
 
+
+    # replace '$' with ':' again in both nucleotide and translated fasta
     cmd = ['sed', '-i', '/^>/ s/\$/:/', window_fa_name, tr_fa_name]
     p = Popen(cmd)
     exit_code = p.wait()
     if exit_code != 0: raise
 
+
+    # run HMMER3 on the translated windows
     hmmer_out_name = path.join(workdir,'hmmer.out')
-    cmd = ['hmmsearch', '--notextw', '--cpu', str(int(threads)), '-o', hmmer_out_name, hmm3db, tr_fa_name]
-    p = Popen(cmd)
+    cmd = ['hmmsearch', '--cpu', str(int(threads)), '--domtblout', hmmer_out_name, hmm3db, tr_fa_name]
+    p = Popen(cmd, stdout=DEVNULL)
     exit_code = p.wait()
     if exit_code != 0: raise
 
 
-    cmds = [
-        [path.join(script_dir,'hmm2gff.py'), '-w', '-e', '1e5', '-f', window_fa_name,  hmmer_out_name],
-        ['gawk', 'BEGIN{FS=OFS="\t"}/^#/{next}{print $1, $4 - 1, $5}'],
-        ['sort', '-k', '1,1', '-k2,2n'],
-        ['bedtools', 'slop', '-g', dbfafai, '-b', '3000']
-    ]
+    with open(dbfafai) as f:
+        chrom_lens = { l.split('\t')[0]:int(l.split('\t')[1]) for l in f }
 
+    # make the presearch bed based on HMMER output
     hmmer_bed_name = path.join(workdir,'hmmer.bed')
-    with open(hmmer_bed_name, 'w') as f:
-        exit_info = run_pipeline(cmds, f)
+    make_hmmer_presearchbed(window_fa_name, hmmer_out_name, hmmer_bed_name, chrom_lens,
+        slop=slop, windowed=True, e_cutoff=e_cutoff)
 
     return hmmer_bed_name
+
 
 
 def bed2wdw_fa(bedfile, dbfasta):
@@ -132,6 +140,7 @@ def bed2wdw_fa(bedfile, dbfasta):
         exit_info = run_pipeline(cmds, f)
 
     return window_fa_name
+
 
 
 def run_genewise(sefasta, hmm2db, gw_out, threads=2, mem=4e6):
@@ -153,6 +162,7 @@ def run_genewise(sefasta, hmm2db, gw_out, threads=2, mem=4e6):
     return gw_out
 
 
+
 def process_genewise(sefasta, gw_out, hit_mask=None):
     cmd = [path.join(script_dir,'process_genewise.py'),
             gw_out, '--fasta', sefasta, '--windowed',
@@ -171,6 +181,7 @@ def process_genewise(sefasta, gw_out, hit_mask=None):
         if exit_code != 0: raise
 
     return gw_tsv
+
 
 
 ###
