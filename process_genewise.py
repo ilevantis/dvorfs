@@ -175,13 +175,16 @@ def make_ali_array(hit_df):
 
 
 
-def main(args):
+def main(infile, fasta, windowed=False,
+    merge=False, merge_distance=1000, merge_overlap=2,
+    filter_type='no-overlap', hit_mask=None, bit_cutoff=15.0, length_cutoff=30,
+    out_cols=[], make_alis=False):
 
-    results = parse_genewise.parse(args.infile.name, args.fasta.name)
+    results = parse_genewise.parse(infile, fasta)
     df = pd.DataFrame.from_records(results, columns=parse_genewise.HSP._fields)
     df = df[df['bits'] > 0.0]
 
-    if args.windowed:
+    if windowed:
         # parse the target seq id of window to calculate real coordinates on the contig and real contig name
         df['wstart'] = df['target'].apply(lambda x: int(x.split(':')[1].split('-')[0]))
         df['target'] = df['target'].apply(lambda x: x.split(':')[0])
@@ -190,8 +193,8 @@ def main(args):
         df = df.drop('wstart', axis=1)
 
     # filter / merge hits depending on filter mode
-    if args.merge:
-        hits = merge_hits(df, max_overlap=args.merge_overlap, max_distance=args.merge_distance)
+    if merge:
+        hits = merge_hits(df, max_overlap=merge_overlap, max_distance=merge_distance)
     else:
         hits = df
         hits['no_hsps'] = 1
@@ -199,10 +202,10 @@ def main(args):
     if len(hits) < 1:
         filtered_hits = hits
 
-    elif args.filter == 'all':
+    elif filter_type == 'all':
         filtered_hits = hits
 
-    elif args.filter == 'best-per':
+    elif filter_type == 'best-per':
         filtered_hits = (hits
                          .groupby('target')
                          .apply(lambda x: x.nlargest(1,'bits'))
@@ -210,7 +213,7 @@ def main(args):
                          .reset_index(drop=True)
                        )
 
-    elif args.filter == 'no-overlap':
+    elif filter_type == 'no-overlap':
         keep = []
         for g_tup, g in hits.groupby(['target','tstrand'], sort=False):
             stack = list(g.sort_values('bits', ascending=False).itertuples())
@@ -228,8 +231,9 @@ def main(args):
     # apply hit_mask
     if len(filtered_hits) < 1:
         pass
-    elif args.hit_mask:
-        hit_mask = parse_mask_tsv(args.hit_mask)
+    elif hit_mask:
+        with open(hit_mask) as f:
+            hit_mask = parse_mask_tsv(f)
         def mask_hits(r):
             masked = False
             regions = hit_mask.get(r.query,[])
@@ -245,11 +249,11 @@ def main(args):
     if len(filtered_hits) < 1:
         final_hits = filtered_hits
     else:
-        mask = filtered_hits.apply(lambda r: r.matches >= args.length_cutoff and r.bits >= args.bit_cutoff, axis=1)
+        mask = filtered_hits.apply(lambda r: r.matches >= length_cutoff and r.bits >= bit_cutoff, axis=1)
         final_hits = filtered_hits[mask].reset_index(drop=True)
 
     final_hits = (final_hits
-            .sort_values(['target','bits'],ascending=[True,False])
+            .sort_values(['query','bits'],ascending=[True,False])
             .reset_index(drop=True)
             .reset_index()
            )
@@ -258,33 +262,18 @@ def main(args):
     # finalise output format
     cols = ['id', 'bits', 'query', 'qstart', 'qend', 'target',
             'tstrand', 'tstart', 'tend', 'no_hsps', 'matches' ]
-    if args.full:
-        args.aaseq = args.naseq = True
-    if args.aaseq:
-        final_hits['aaseq'] = final_hits['aaseq'].apply(lambda l:''.join(l))
-        cols.append('aaseq')
-    if args.naseq:
-        final_hits['naseq'] = final_hits['naseq'].apply(lambda l:','.join(l))
-        cols.append('naseq')
-    if args.full:
-        cols += ['overlapped', 'hsps']
 
+    cols += out_cols
     output_df = final_hits[cols]
-    output_df.to_csv(args.out, sep='\t', index=False, float_format='%.2f')
 
-    if args.aliout:
-        os.makedirs(args.aliout, exist_ok=True)
-
+    if make_alis:
+        alis = []
         for name, hit_df in final_hits.groupby(['query']):
-            ali, order = make_ali_array(hit_df)
+            alis.append( (name, *make_ali_array(hit_df)) )
+    else:
+        alis = None
 
-            with open(os.path.join(args.aliout, f'{name}.ali.fa'), 'w') as f:
-                print(">CODONS", file=f)
-                print(''.join(ali[-1]), file=f)
-
-                for id, row in zip(order,ali[:-1]):
-                    print(f">hitid-{id}", file=f)
-                    print(''.join(row), file=f)
+    return output_df, alis
 
 
 
@@ -349,4 +338,39 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    main(args)
+    outcols = []
+    if args.full:
+        args.aaseq = args.naseq = True
+    if args.aaseq:
+        outcols.append('aaseq')
+    if args.naseq:
+        outcols.append('naseq')
+    if args.full:
+        outcols  += ['overlapped', 'hsps']
+
+    make_alis = True if args.aliout else False
+    hit_mask = args.hit_mask.name if args.hit_mask else None
+
+    df, alis = main(args.infile.name, args.fasta.name, windowed=args.windowed,
+        merge=args.merge, merge_distance=args.merge_distance, merge_overlap=args.merge_overlap,
+        filter_type=args.filter, hit_mask=hit_mask, bit_cutoff=args.bit_cutoff, length_cutoff=args.length_cutoff,
+        out_cols=outcols, make_alis=make_alis)
+
+    if args.aaseq:
+        df['aaseq'] = df['aaseq'].apply(lambda l:''.join(l))
+    if args.naseq:
+        df['naseq'] = df['naseq'].apply(lambda l:','.join(l))
+
+    df.to_csv(args.out, sep='\t', index=False, float_format='%.2f')
+
+    if args.aliout:
+        os.makedirs(args.aliout, exist_ok=True)
+
+        for name, ali, order in alis:
+            with open(os.path.join(args.aliout, f'{name}.ali.fa'), 'w') as f:
+                print(">CODONS", file=f)
+                print(''.join(ali[-1]), file=f)
+
+                for id, row in zip(order,ali[:-1]):
+                    print(f">hitid-{id}", file=f)
+                    print(''.join(row), file=f)

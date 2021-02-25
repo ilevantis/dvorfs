@@ -3,6 +3,7 @@ from subprocess import Popen, PIPE, DEVNULL
 import sys, os, shutil, argparse
 from os import path
 from hmmer2bed import make_hmmer_presearchbed
+import process_genewise
 
 ###
 
@@ -163,26 +164,36 @@ def run_genewise(sefasta, hmm2db, gw_out, threads=2, mem=4e6):
 
 
 
-def process_genewise(sefasta, gw_out, hit_mask=None):
+def process_genewise_output(sefasta, gw_out,
+    make_alis=False, out_cols=[], **kwargs):
+
+    # output file/dir names
     gw_tsv = path.join(workdir,'gw.tsv')
-    gw_alis = path.join(workdir,'gw_ali')
-    cmd = [path.join(script_dir,'process_genewise.py'),
-            gw_out, '--fasta', sefasta, '--windowed',
-            '--merge', '--merge-distance', '1000',
-            '--filter', 'no-overlap',
-            '--bit-cutoff', '15.0', '--length-cutoff', '20',
-            '--aaseq', '--aliout', gw_alis]
+    gw_alidir = path.join(workdir,'gw_ali')
 
-    if hit_mask:
-        cmd += ['--hit-mask', hit_mask]
+    df, alis = process_genewise.main(gw_out, sefasta,
+        make_alis=make_alis, out_cols=out_cols, **kwargs)
 
-    gw_tsv = path.join(workdir,'gw.tsv')
-    with open(gw_tsv, 'w') as f:
-        p = Popen(cmd, stdout=f)
-        exit_code = p.wait()
-        if exit_code != 0: raise
+    if 'aaseq' in out_cols:
+        df['aaseq'] = df['aaseq'].apply(lambda l:''.join(l))
+    if 'naseq' in out_cols:
+        df['naseq'] = df['naseq'].apply(lambda l:','.join(l))
 
-    return gw_tsv, gw_alis
+    df.to_csv(gw_tsv, sep='\t', index=False, float_format='%.2f')
+
+    if make_alis:
+        os.makedirs(gw_alidir, exist_ok=True)
+
+        for name, ali, order in alis:
+            with open(path.join(gw_alidir, f'{name}.ali.fa'), 'w') as f:
+                print(">CODONS", file=f)
+                print(''.join(ali[-1]), file=f)
+
+                for id, row in zip(order,ali[:-1]):
+                    print(f">hitid-{id}", file=f)
+                    print(''.join(row), file=f)
+
+    return gw_tsv, gw_alidir
 
 
 
@@ -233,10 +244,28 @@ def main(args):
         print("GeneWise outfile already present, skipping step.", file=sys.stderr)
 
     # Process hits
+    out_cols = ['aaseq']
+    if args.full_tsv:
+        args.nuc_tsv = True
+    if args.nuc_tsv:
+        out_cols.append('naseq')
+    if args.full_tsv:
+        out_cols  += ['overlapped', 'hsps']
+
+    hit_mask = args.hit_mask.name if args.hit_mask else None
+
     print("Processing GeneWise hits...", file=sys.stderr)
-    gw_tsv, gw_alis = process_genewise(windowed_fasta, gw_out, hit_mask=None)
+    gw_tsv, gw_alidir = process_genewise_output(windowed_fasta, gw_out, windowed=True,
+        merge=args.merge, merge_distance=args.merge_distance,
+        filter_type=args.filter, hit_mask=hit_mask, bit_cutoff=args.bit_cutoff, length_cutoff=args.length_cutoff,
+        out_cols=out_cols, make_alis=args.ali)
+
     shutil.copy(gw_tsv, path.join(args.outdir,'dvorfs_hits.tsv'))
-    shutil.copytree(gw_alis, path.join(args.outdir,'dvorfs_alis'))
+
+    if args.ali:
+        shutil.copytree(gw_alidir, path.join(args.outdir,'dvorfs_alis'))
+
+
     print("DVORFS finsihed running.", file=sys.stderr)
 
     # clean up the work directory
@@ -255,28 +284,79 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
     parser.add_argument('-f', '--fasta',
-        type=str, required=True)
+        type=str, required=True,
+        help="""""")
 
     parser.add_argument('-i', '--fai',
-        type=str, required=True)
+        type=str, required=True,
+        help="""""")
 
     hmmarg = parser.add_mutually_exclusive_group(required=True)
-    hmmarg.add_argument('--hmm2', type=str)
-    hmmarg.add_argument('--hmm3', type=str)
-    hmmarg.add_argument('--seed', type=str)
+    hmmarg.add_argument('--hmm2', type=str,
+    help="""""")
+    hmmarg.add_argument('--hmm3', type=str,
+    help="""""")
+    hmmarg.add_argument('--seed', type=str,
+    help="""""")
 
     parser.add_argument('-b', '--bed',
-        type=str)
+        type=str,
+        help="""""")
 
     parser.add_argument('-p', '--procs',
-        type=int, default=2)
+        type=int, default=2,
+        help="""""")
 
     parser.add_argument('-o','--outdir',
-        type=str, default='./')
+        type=str, default='./',
+        help="""""")
     parser.add_argument('-d','--workdir',
-        type=str, default='./')
+        type=str, default='./',
+        help="""""")
     parser.add_argument('-k', '--keep-workdir',
-        action='store_true')
+        action='store_true',
+        help="""""")
+
+    parser.add_argument('--nuc-tsv',
+        action='store_true',
+        help="""Nucleotide sequences with comma seperated codons are inlcuded in the output tsv.""")
+
+    parser.add_argument('--full-tsv',
+        action='store_true',
+        help="""Extra columns containing postprocessing details are included in the output tsv.""")
+
+    parser.add_argument('--ali',
+        action='store_true',
+        help="""Output explicit codon alignments of hits for each HMM with any hits.""")
+
+    # postprocess related args
+    parser.add_argument('--merge',
+        action='store_true',
+        help="""Hits will be merged before filtering.
+                (Worse hits from same query are removed at overlaps.)""")
+
+    parser.add_argument('--merge-distance',
+        type=int, default=1000)
+
+    parser.add_argument('--filter',
+        choices=['all', 'no-overlap', 'best-per'], default='all',
+        help="""
+        all:        All hits are kept.
+        no_overlap: Hits are removed if they are overlapped by a better hit from a
+                    different query.
+        best_per:   Only the highest scoring hit per contig is kept.""")
+
+    parser.add_argument('--hit-mask',
+        type=argparse.FileType('r'))
+
+    parser.add_argument('--bit-cutoff',
+        type=float, default=15.0)
+
+    parser.add_argument('--length-cutoff',
+        type=int, default=30)
+
+
+
 
     args = parser.parse_args()
     main(args)
