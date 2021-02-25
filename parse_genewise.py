@@ -79,16 +79,16 @@ AlState = namedtuple('AlState', ['score', 'qpos', 'qstate', 'tpos', 'tstate'])
 def parse_alb_line(l):
     s, q, t = ptrns['alb_line'].fullmatch(l).groups()
     s = float(s)
-    # add one to each position to get correct index
-    qpos = tuple(int(i)+1 for i in q.split(' ')[0].split(':'))
+    qpos = tuple(int(i) for i in q.split(' ')[0].split(':'))
     qstate = q.split(' ')[1][1:-1]
+    # add one to each position to get correct index
     tpos = tuple(int(i)+1 for i in t.split(' ')[0].split(':'))
     tstate = t.split(' ')[1][1:-1]
     return AlState(s,qpos,qstate,tpos,tstate)
 
 HSP = namedtuple('HSP', ['query', 'qstart', 'qend',
                          'target', 'tstrand', 'tstart', 'tend',
-                         'bits', 'matches', 'naseq', 'aaseq' ])
+                         'bits', 'matches', 'naseq', 'aaseq', 'alpos' ])
 
 
 def parse(genewisefilename, fastafilename, low_mem=False):
@@ -138,10 +138,11 @@ def parse(genewisefilename, fastafilename, low_mem=False):
                 a = parse_alb_line(l)
                 aaseq = []
                 naseq = []
+                alpos = []
                 score = 0.0
                 matches = 0
                 tstart = a.tpos[0]
-                qstart = a.qpos[0]
+                qstart = a.qpos[1]
 
                 while (    (a.tstate, a.qstate) != ('RANDOM_SEQUENCE', 'LOOP')
                        and (a.tstate, a.qstate) != ('END', 'END')
@@ -151,6 +152,7 @@ def parse(genewisefilename, fastafilename, low_mem=False):
                         print("Fasta sequence '{}' shorter than expected!".format(target), file=sys.stderr)
                     elif (a.tstate, a.qstate) == ('CODON', 'MATCH_STATE'):
                         # codon
+                        alpos.append((a.qpos[1], 0))
                         s = seq[a.tpos[0]:a.tpos[1]]
                         naseq.append(s)
                         aaseq.append(translate_codon(s))
@@ -158,6 +160,8 @@ def parse(genewisefilename, fastafilename, low_mem=False):
                         matches += 1
                     elif (a.tstate, a.qstate) == ('CODON', 'INSERT_STATE'):
                         # target has insertion compared to query
+                        ins_pos = alpos[-1][1]+1 if alpos[-1][0] == a.qpos[1] else 1 # ins_pos increments if main pos is same as previous pos
+                        alpos.append((a.qpos[1], ins_pos))
                         s = seq[a.tpos[0]:a.tpos[1]]
                         naseq.append(s)
                         aaseq.append(translate_codon(s))
@@ -168,18 +172,23 @@ def parse(genewisefilename, fastafilename, low_mem=False):
                         matches += 1
                     elif (a.tstate, a.qstate) == ('SEQUENCE_DELETION', 'INSERT_STATE'):
                         # likely insertion frameshift mutation between two alignable codons
+                        ins_pos = alpos[-1][1]+1 if alpos[-1][0] == a.qpos[1] else 1 # ins_pos increments if main pos is same as previous pos
+                        alpos.append((a.qpos[1], ins_pos))
                         s = seq[a.tpos[0]:a.tpos[1]]
                         naseq.append(s)
                         aaseq.append('!')
                         score += a.score
                     elif (a.tstate, a.qstate) == ('SEQUENCE_INSERTION', 'INSERT_STATE'):
                         # likely insertion frameshift mutation between two alignable codons
+                        ins_pos = alpos[-1][1]+1 if alpos[-1][0] == a.qpos[1] else 1 # ins_pos increments if main pos is same as previous pos
+                        alpos.append((a.qpos[1], ins_pos))
                         s = seq[a.tpos[0]:a.tpos[1]]
                         naseq.append(s)
                         aaseq.append('!')
                         score += a.score
                     elif (a.tstate, a.qstate) == ('SEQUENCE_DELETION', 'MATCH_STATE'):
                         # likely deletion frameshift mutation that disrupted an alignable codon
+                        alpos.append((a.qpos[1], 0))
                         s = seq[a.tpos[0]:a.tpos[1]]
                         naseq.append(s)
                         aaseq.append('?')
@@ -187,6 +196,7 @@ def parse(genewisefilename, fastafilename, low_mem=False):
                         matches += 1
                     elif (a.tstate, a.qstate) == ('SEQUENCE_INSERTION', 'MATCH_STATE'):
                         # likely insertion frameshift and highly diverged codon (but don't know what codon)
+                        alpos.append((a.qpos[1], 0))
                         s = seq[a.tpos[0]:a.tpos[1]]
                         naseq.append(s)
                         aaseq.append('&')
@@ -209,7 +219,7 @@ def parse(genewisefilename, fastafilename, low_mem=False):
 
                 hsp = HSP(query, qstart, qend,
                           target, strand, tstart, tend,
-                          score, matches, naseq, aaseq)
+                          score, matches, naseq, aaseq, alpos)
 
                 if hsp.matches > 0: #ignore empty hsps caused by random seq -> end transition
                     yield hsp

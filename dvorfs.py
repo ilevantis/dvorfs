@@ -164,12 +164,14 @@ def run_genewise(sefasta, hmm2db, gw_out, threads=2, mem=4e6):
 
 
 def process_genewise(sefasta, gw_out, hit_mask=None):
+    gw_tsv = path.join(workdir,'gw.tsv')
+    gw_alis = path.join(workdir,'gw_ali')
     cmd = [path.join(script_dir,'process_genewise.py'),
             gw_out, '--fasta', sefasta, '--windowed',
             '--merge', '--merge-distance', '1000',
             '--filter', 'no-overlap',
             '--bit-cutoff', '15.0', '--length-cutoff', '20',
-            '--full']
+            '--aaseq', '--aliout', gw_alis]
 
     if hit_mask:
         cmd += ['--hit-mask', hit_mask]
@@ -180,7 +182,7 @@ def process_genewise(sefasta, gw_out, hit_mask=None):
         exit_code = p.wait()
         if exit_code != 0: raise
 
-    return gw_tsv
+    return gw_tsv, gw_alis
 
 
 
@@ -232,8 +234,9 @@ def main(args):
 
     # Process hits
     print("Processing GeneWise hits...", file=sys.stderr)
-    gw_tsv = process_genewise(windowed_fasta, gw_out, hit_mask=None)
-    shutil.copy(gw_tsv,path.join(args.outdir,'dvorfs_hits.tsv'))
+    gw_tsv, gw_alis = process_genewise(windowed_fasta, gw_out, hit_mask=None)
+    shutil.copy(gw_tsv, path.join(args.outdir,'dvorfs_hits.tsv'))
+    shutil.copytree(gw_alis, path.join(args.outdir,'dvorfs_alis'))
     print("DVORFS finsihed running.", file=sys.stderr)
 
     # clean up the work directory

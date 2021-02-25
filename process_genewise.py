@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-import sys, argparse
+import sys, argparse, os
 import pandas as pd
+import numpy as np
 from collections import defaultdict
 import parse_genewise
 
@@ -39,10 +40,14 @@ def combine(r1,r2):
     if overlap > 0:
         r1['aaseq'] = r1['aaseq'][:-overlap] + r2['aaseq']
         r1['naseq'] = r1['naseq'][:-overlap] + r2['naseq']
+        r1['alpos'] = r1['alpos'][:-overlap] + r2['alpos']
         r1['matches'] = r1['matches'] + r2['matches'] - overlap
     else:
         r1['aaseq'] = r1['aaseq'] + ['x']*-overlap + r2['aaseq']
         r1['naseq'] = r1['naseq'] + ['nnn']*-overlap + r2['naseq']
+        r1['alpos'] = (r1['alpos']
+            + list(zip(range(r1['alpos'][-1][0]+1, r2['alpos'][0][0]),[0]*-overlap))
+            + r2['alpos'])
         r1['matches'] = r1['matches'] + r2['matches']
     r1['qstart'] = min([r1['qstart'],r2['qstart']])
     r1['qend'] = max([r1['qend'],r2['qend']])
@@ -127,6 +132,48 @@ def parse_mask_tsv(f):
     return dict(d)
 
 
+def make_ali_array(hit_df):
+    """
+    Make a numpy array of the codon alignment with final row as codon reference row.
+    hit_df must contain the columns: id, alpos, naseq.
+    Outputs the array and a list of the hit ids representing the row-wise order of sequences in the
+    alignment.
+    """
+
+    col_dict = defaultdict(lambda: np.full((len(hit_df)+1,1), '---', dtype=object))
+
+    # Mark all the canoncial cols
+    for c in range(hit_df['qstart'].min(), hit_df['qend'].max()+1):
+        col_dict[(c,0)][-1,0] = 'N--'
+
+    seq_order = []
+    # Fill in the codon sequences in the cols
+    for row, hit in enumerate(hit_df.itertuples()):
+        seq_order.append(hit.id)
+        for pos,s in zip(hit.alpos, hit.naseq):
+            col_dict[pos][row,0] = s
+            # if its non-canonical col label it
+            if pos[1] > 0:
+                col_dict[pos][-1,0] = 'n--'
+
+    col_items = sorted(list(col_dict.items()), key=lambda i: i[0])
+    cols = [ i[1] for i in col_items ]
+
+    # pad each column to mod 3 length
+    for c in cols:
+        width = max(len(i[0]) for i in c)
+        width += -width % 3
+        for i in range(len(c)):
+            c[i,0] += '-'*(width-len(c[i,0]))
+
+    # remove empty cols
+    cols = [ c for c in cols if not np.all(c[:-1] == '---') ]
+
+    ali_arr = np.hstack(cols)
+
+    return ali_arr, seq_order
+
+
 
 def main(args):
 
@@ -201,8 +248,15 @@ def main(args):
         mask = filtered_hits.apply(lambda r: r.matches >= args.length_cutoff and r.bits >= args.bit_cutoff, axis=1)
         final_hits = filtered_hits[mask].reset_index(drop=True)
 
+    final_hits = (final_hits
+            .sort_values(['target','bits'],ascending=[True,False])
+            .reset_index(drop=True)
+            .reset_index()
+           )
+    final_hits['id'] = final_hits['index'] + 1
+
     # finalise output format
-    cols = ['bits', 'query', 'qstart', 'qend', 'target',
+    cols = ['id', 'bits', 'query', 'qstart', 'qend', 'target',
             'tstrand', 'tstart', 'tend', 'no_hsps', 'matches' ]
     if args.full:
         args.aaseq = args.naseq = True
@@ -215,14 +269,22 @@ def main(args):
     if args.full:
         cols += ['overlapped', 'hsps']
 
-    final_hits = (final_hits[cols]
-            .sort_values(['target','bits'],ascending=[True,False])
-            .reset_index(drop=True)
-            .reset_index()
-           )
-    final_hits['index'] = final_hits['index'] + 1
+    output_df = final_hits[cols]
+    output_df.to_csv(args.out, sep='\t', index=False, float_format='%.2f')
 
-    final_hits.to_csv(args.out, sep='\t', index=False, float_format='%.2f')
+    if args.aliout:
+        os.makedirs(args.aliout, exist_ok=True)
+
+        for name, hit_df in final_hits.groupby(['query']):
+            ali, order = make_ali_array(hit_df)
+
+            with open(os.path.join(args.aliout, f'{name}.ali.fa'), 'w') as f:
+                print(">CODONS", file=f)
+                print(''.join(ali[-1]), file=f)
+
+                for id, row in zip(order,ali[:-1]):
+                    print(f">hitid-{id}", file=f)
+                    print(''.join(row), file=f)
 
 
 
@@ -280,6 +342,10 @@ if __name__ == "__main__":
 
     parser.add_argument('--out',
         type=argparse.FileType('w'), default=sys.stdout)
+
+    parser.add_argument('--aliout',
+        help="""Output an alignment fasta of hits for each HMM with any hits into specified dir.""")
+
 
     args = parser.parse_args()
 
