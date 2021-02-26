@@ -143,6 +143,22 @@ def bed2wdw_fa(bedfile, dbfasta):
     return window_fa_name
 
 
+def genome2wdw_fa(dbfafai, dbfasta):
+
+    cmds = [
+        ['bedtools', 'makewindows', '-g', dbfafai, '-w', '20000', '-s', '15000'],
+        ['gawk', 'BEGIN{FS=OFS="\t"}$3-$2>=90{print $0}'], # filter out windows < 30AA
+        ['bedtools', 'getfasta', '-fi', dbfasta, '-bed', '-'],
+        ['fold', '-w', '80']
+    ]
+
+    window_fa_name = path.join(workdir,'windows.fa')
+    with open(window_fa_name,'w') as f:
+        exit_info = run_pipeline(cmds, f)
+
+    return window_fa_name
+
+
 
 def run_genewise(sefasta, hmm2db, gw_out, threads=2, mem=4e6):
 
@@ -226,18 +242,22 @@ def main(args):
     else:
         print("Converted HMM databases already present, skipping step.", file=sys.stderr)
 
+    if not args.full_search:
+        if not args.bed:
+            # do a presearch
+            print("Running presearch using HMMER...", file=sys.stderr)
+            search_bed = hmmer_pre_search(args.fai, args.fasta, hmm3db, threads=args.procs)
+            shutil.copy(search_bed,path.join(args.outdir,'dvorfs_presearch.bed'))
+        else:
+            # use supplied bed file
+            search_bed = args.bed
 
-    if not args.bed:
-        # do a presearch
-        print("Running presearch using HMMER...", file=sys.stderr)
-        search_bed = hmmer_pre_search(args.fai, args.fasta, hmm3db, threads=args.procs)
-        shutil.copy(search_bed,path.join(args.outdir,'dvorfs_presearch.bed'))
+        # chop search regions into 20kbp windows to stop GW from breaking
+        windowed_fasta = bed2wdw_fa(search_bed, args.fasta)
+
     else:
-        # use supplied bed file
-        search_bed = args.bed
-
-    # chop into 20kbp windows to stop GW from breaking
-    windowed_fasta = bed2wdw_fa(search_bed, args.fasta)
+        # chop whole genome into 20kbp windows to stop GW from breaking
+        windowed_fasta = genome2wdw_fa(args.fai, args.fasta)
 
     # run GW
     gw_out = path.join(workdir,'gw.out')
@@ -307,6 +327,11 @@ if __name__ == "__main__":
     parser.add_argument('-b', '--bed',
         type=str,
         help="""""")
+
+    parser.add_argument('--full-search',
+        action='store_true',
+        help="""Skip presearch step and run genewise on the whole input fasta.
+                WARNING: this can take a very long time.""")
 
     parser.add_argument('-p', '--procs',
         type=int, default=2,
