@@ -10,3 +10,4 @@ dependencies:
   - hmmer
   - hmmer2
   - emboss
+  - wise2

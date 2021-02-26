@@ -153,9 +153,14 @@ def run_genewise(sefasta, hmm2db, gw_out, threads=2, mem=4e6):
             '-pthread', '-pthr_no', str(int(threads)), '-kbyte', str(int(mem)),
             '-aln', '9999999', '-alb', '-quiet']
 
+    # make an environment with the WISECONFIGDIR environment variable so genewise is happy
+    # assumes we are running in a conda environment with wise2 installed through conda
+    gw_env = os.environ.copy()
+    gw_env['WISECONFIGDIR'] = path.join(os.environ['CONDA_PREFIX'], 'share/wise2/wisecfg/')
+
     gw_out_temp = path.join(workdir,'gw.out.temp')
     with open(gw_out_temp, 'w') as f:
-        p = Popen(cmd, stdout=f)
+        p = Popen(cmd, stdout=f, env=gw_env)
         exit_code = p.wait()
         if exit_code != 0: raise
     os.rename(gw_out_temp, gw_out)
