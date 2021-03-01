@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+
+__version__ = '1.0.0'
+
 from subprocess import Popen, PIPE, DEVNULL
 import sys, os, shutil, argparse
 from os import path
@@ -8,7 +11,6 @@ import process_genewise
 ###
 
 debug = False
-script_dir = path.dirname(path.realpath(__file__))
 workdir = ''
 
 ###
@@ -225,8 +227,14 @@ def main(args):
 
     # set work directory for temp files
     global workdir
-    workdir = path.join(args.workdir,'dvorfs.tmp')
+    if args.workdir:
+        workdir = args.workdir
+    else:
+        workdir = path.join(args.outdir,f'{args.prefix}.tmp')
     os.makedirs(workdir, exist_ok=True)
+
+    if not args.fai:
+        args.fai = args.fasta + '.fai'
 
     # convert HMM files to both formats
     hmm2db = path.join(workdir,'hmmdb.hmm2')
@@ -246,8 +254,8 @@ def main(args):
         if not args.bed:
             # do a presearch
             print("Running presearch using HMMER...", file=sys.stderr)
-            search_bed = hmmer_pre_search(args.fai, args.fasta, hmm3db, threads=args.procs)
-            shutil.copy(search_bed,path.join(args.outdir,'dvorfs_presearch.bed'))
+            search_bed = hmmer_pre_search(args.fai, args.fasta, hmm3db, threads=args.procs, slop=args.presearch_slop)
+            shutil.copy(search_bed,path.join(args.outdir,f'{args.prefix}.presearch.bed'))
         else:
             # use supplied bed file
             search_bed = args.bed
@@ -281,14 +289,14 @@ def main(args):
 
     print("Processing GeneWise hits...", file=sys.stderr)
     gw_tsv, gw_alidir = process_genewise_output(windowed_fasta, gw_out, windowed=True,
-        merge=args.merge, merge_distance=args.merge_distance,
+        merge=(not args.nomerge), merge_distance=args.merge_distance,
         filter_type=args.filter, hit_mask=hit_mask, bit_cutoff=args.bit_cutoff, length_cutoff=args.length_cutoff,
-        out_cols=out_cols, make_alis=args.ali)
+        out_cols=out_cols, make_alis=(not args.noali))
 
-    shutil.copy(gw_tsv, path.join(args.outdir,'dvorfs_hits.tsv'))
+    shutil.copy(gw_tsv, path.join(args.outdir,f'{args.prefix}.hits.tsv'))
 
-    if args.ali:
-        shutil.copytree(gw_alidir, path.join(args.outdir,'dvorfs_alis'))
+    if not args.noali:
+        shutil.copytree(gw_alidir, path.join(args.outdir,f'{args.prefix}.alis'), dirs_exist_ok=True)
 
 
     print("DVORFS finsihed running.", file=sys.stderr)
@@ -306,86 +314,103 @@ def main(args):
 ###
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(description=f"DVORFS v{__version__}")
 
-    parser.add_argument('-f', '--fasta',
+    queryargs = parser.add_argument_group("Input target sequence")
+    queryargs.add_argument('-f', '--fasta',
         type=str, required=True,
-        help="""""")
+        help="""Input fasta file.""")
 
-    parser.add_argument('-i', '--fai',
-        type=str, required=True,
-        help="""""")
-
-    hmmarg = parser.add_mutually_exclusive_group(required=True)
-    hmmarg.add_argument('--hmm2', type=str,
-    help="""""")
-    hmmarg.add_argument('--hmm3', type=str,
-    help="""""")
-    hmmarg.add_argument('--seed', type=str,
-    help="""""")
-
-    parser.add_argument('-b', '--bed',
+    queryargs.add_argument('-i', '--fai',
         type=str,
-        help="""""")
+        help="""Input fasta index file (default: <input.fasta>.fai).""")
 
-    parser.add_argument('--full-search',
+    hmmargs = parser.add_argument_group("Input query profiles")
+    hmmargs = hmmargs.add_mutually_exclusive_group(required=True)
+    hmmargs.add_argument('--hmm2', type=str,
+    help="""Input query hmm file (HMMER2 file format).""")
+    hmmargs.add_argument('--hmm3', type=str,
+    help="""Input query hmm file (HMMER3 file format).""")
+    hmmargs.add_argument('--seed', type=str,
+    help="""Input query seed alignment file (stockholm or fasta format).""")
+
+    presearchargs = parser.add_argument_group("Presearch")
+    presearchargs.add_argument('--presearch-slop',
+        type=int, default=3000,
+        help="""Size of flanking regions next to presearch hits in which to search.""")
+
+    presearchargs.add_argument('-b', '--bed',
+        type=str,
+        help="""Skip presearch step and use a bed file to limit search regions.""")
+
+    presearchargs.add_argument('--full-search',
         action='store_true',
         help="""Skip presearch step and run genewise on the whole input fasta.
                 WARNING: this can take a very long time.""")
 
-    parser.add_argument('-p', '--procs',
+    runargs = parser.add_argument_group("Runtime/output")
+    runargs.add_argument('-p', '--procs',
         type=int, default=2,
-        help="""""")
+        help="""Number of processor threads to use for running HMMER and GeneWise.""")
 
-    parser.add_argument('-o','--outdir',
+    runargs.add_argument('-o','--outdir',
         type=str, default='./',
-        help="""""")
-    parser.add_argument('-d','--workdir',
-        type=str, default='./',
-        help="""""")
-    parser.add_argument('-k', '--keep-workdir',
+        help="""Output directory. Defaults to current working directory.""")
+
+    runargs.add_argument('--prefix',
+        type=str, default='dvorfs',
+        help="""Prefix for output files (default: "dvorfs").""")
+
+    runargs.add_argument('-d','--workdir',
+        type=str,
+        help="""Directory in which DVORFS will save files during a run (default: <outdir>/dvorfs.tmp).""")
+
+    runargs.add_argument('-k', '--keep-workdir',
         action='store_true',
-        help="""""")
+        help="""Do not delete the temporary working directory after DVORFS has finished.""")
 
-    parser.add_argument('--nuc-tsv',
+    runargs.add_argument('--nuc-tsv',
         action='store_true',
         help="""Nucleotide sequences with comma seperated codons are inlcuded in the output tsv.""")
 
-    parser.add_argument('--full-tsv',
+    runargs.add_argument('--full-tsv',
         action='store_true',
         help="""Extra columns containing postprocessing details are included in the output tsv.""")
 
-    parser.add_argument('--ali',
+    runargs.add_argument('--noali',
         action='store_true',
-        help="""Output explicit codon alignments of hits for each HMM with any hits.""")
+        help="""Do not output explicit codon alignments of hits.""")
 
-    # postprocess related args
-    parser.add_argument('--merge',
+    postprocargs = parser.add_argument_group("Hit postprocessing and filtering")
+    postprocargs.add_argument('--nomerge',
         action='store_true',
-        help="""Hits will be merged before filtering.
-                (Worse hits from same query are removed at overlaps.)""")
+        help="""Adjacent GeneWise hits will not be merged.""")
 
-    parser.add_argument('--merge-distance',
-        type=int, default=1000)
+    postprocargs.add_argument('--merge-distance',
+        type=int, default=1000,
+        help="""Maximum allowed distance between GeneWise hits to be merged.""")
 
-    parser.add_argument('--filter',
+    postprocargs.add_argument('--filter',
         choices=['all', 'no-overlap', 'best-per'], default='all',
         help="""
-        all:        All hits are kept.
+        all:        All hits are kept (default).
         no_overlap: Hits are removed if they are overlapped by a better hit from a
                     different query.
         best_per:   Only the highest scoring hit per contig is kept.""")
 
-    parser.add_argument('--hit-mask',
-        type=argparse.FileType('r'))
+    postprocargs.add_argument('--hit-mask',
+        type=argparse.FileType('r'),
+        help="""Three column TSV file for filtering out hits based on query regions.""")
 
-    parser.add_argument('--bit-cutoff',
-        type=float, default=15.0)
+    postprocargs.add_argument('--bit-cutoff',
+        type=float, default=15.0,
+        help="""Bit score threshold for reported hits (default: 15.0).""")
 
-    parser.add_argument('--length-cutoff',
-        type=int, default=30)
+    postprocargs.add_argument('--length-cutoff',
+        type=int, default=30,
+        help="""Length threshold (no. of codons) for reported hits (default: 30).""")
 
-
+    parser.add_argument('-v','--version', action='version', version=f"DVORFS v{__version__}")
 
 
     args = parser.parse_args()
