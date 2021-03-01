@@ -57,15 +57,15 @@ def hmmconversion(hmminput, hmm2db, hmm3db, type):
             p = Popen(cmd, stdout=f)
             exit_code = p.wait()
             if exit_code != 0: raise
-        hmm2db = hmminput
+        shutil.copy(hmminput, hmm2db)
 
     elif type == 'hmm3':
-        cmd = ['hmmconvert', hmminput]
+        cmd = ['hmmconvert', '-2', hmminput]
         with open(hmm2db, 'w') as f:
             p = Popen(cmd, stdout=f)
             exit_code = p.wait()
             if exit_code != 0: raise
-        hmm3db = hmminput
+        shutil.copy(hmminput, hmm3db)
 
     else:
         raise
