@@ -41,6 +41,14 @@ def run_pipeline(cmd_list, stdout):
     return output, err, exit_code
 
 
+def clean_and_exit(keep_workdir=False):
+    global workdir
+    if not keep_workdir:
+        print("Cleaning up working directory.", file=sys.stderr)
+        shutil.rmtree(workdir)
+    exit()
+
+
 
 def hmmconversion(hmminput, hmm2db, hmm3db, type):
 
@@ -88,7 +96,7 @@ def hmmer_pre_search(dbfafai, dbfasta, hmm3db,
         ['fold', '-w', '80']
     ]
 
-    window_fa_name = path.join(workdir,'windows.fa')
+    window_fa_name = path.join(workdir,'pre_windows.fa')
     with open(window_fa_name,'w') as f:
         exit_info = run_pipeline(cmds, f)
 
@@ -256,6 +264,11 @@ def run_dvorfs(args):
             print("Running presearch using HMMER...", file=sys.stderr)
             search_bed = hmmer_pre_search(args.fai, args.fasta, hmm3db, threads=args.procs, slop=args.presearch_slop)
             shutil.copy(search_bed,path.join(args.outdir,f'{args.prefix}.presearch.bed'))
+
+            if os.stat(search_bed).st_size == 0:
+                print("Presearch found no potential hits. Finishing early.", file=sys.stderr)
+                clean_and_exit(args.keep_workdir)
+
         else:
             # use supplied bed file
             search_bed = args.bed
@@ -302,9 +315,7 @@ def run_dvorfs(args):
     print("DVORFS finsihed running.", file=sys.stderr)
 
     # clean up the work directory
-    if not args.keep_workdir:
-        print("Cleaning up working directory.", file=sys.stderr)
-        shutil.rmtree(workdir)
+    clean_and_exit(args.keep_workdir)
 
 
 
@@ -337,7 +348,7 @@ def main():
     presearchargs = parser.add_argument_group("Presearch")
     presearchargs.add_argument('--presearch-slop',
         type=int, default=3000,
-        help="""Size of flanking regions next to presearch hits in which to search.""")
+        help="""Size of flanking regions next to presearch hits in which to search (default: 3000).""")
 
     presearchargs.add_argument('-b', '--bed',
         type=str,
