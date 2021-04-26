@@ -5,8 +5,8 @@ __version__ = '1.0.0'
 from subprocess import Popen, PIPE, DEVNULL
 import sys, os, shutil, argparse
 from os import path
-from hmmer2bed import make_hmmer_presearchbed
-import process_genewise
+from .hmmer2bed import make_hmmer_presearchbed
+from .process_genewise import process_genewise
 
 ###
 
@@ -194,7 +194,7 @@ def process_genewise_output(sefasta, gw_out,
     gw_tsv = path.join(workdir,'gw.tsv')
     gw_alidir = path.join(workdir,'gw_ali')
 
-    df, alis = process_genewise.main(gw_out, sefasta,
+    df, alis = process_genewise(gw_out, sefasta,
         make_alis=make_alis, out_cols=out_cols, **kwargs)
 
     if 'aaseq' in out_cols:
@@ -223,7 +223,7 @@ def process_genewise_output(sefasta, gw_out,
 ###
 
 
-def main(args):
+def run_dvorfs(args):
 
     # set work directory for temp files
     global workdir
@@ -313,7 +313,7 @@ def main(args):
 
 ###
 
-if __name__ == "__main__":
+def main():
     parser = argparse.ArgumentParser(description=f"DVORFS v{__version__}")
 
     queryargs = parser.add_argument_group("Input target sequence")
@@ -414,4 +414,4 @@ if __name__ == "__main__":
 
 
     args = parser.parse_args()
-    main(args)
+    run_dvorfs(args)

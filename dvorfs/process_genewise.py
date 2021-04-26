@@ -3,7 +3,7 @@ import sys, argparse, os
 import pandas as pd
 import numpy as np
 from collections import defaultdict
-import parse_genewise
+from . import parse_genewise
 
 
 # NOTE for sequence arithmetic: records use BED-style index
@@ -175,7 +175,7 @@ def make_ali_array(hit_df):
 
 
 
-def main(infile, fasta, windowed=False,
+def process_genewise(infile, fasta, windowed=False,
     merge=False, merge_distance=1000, merge_overlap=2,
     filter_type='no-overlap', hit_mask=None, bit_cutoff=15.0, length_cutoff=30,
     out_cols=[], make_alis=False):
@@ -277,8 +277,8 @@ def main(infile, fasta, windowed=False,
 
 
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
+def main():
+    parser = argparse.ArgumentParser(description=f"process_genewise.py is part of DVORFS")
 
     parser.add_argument('infile',
         type=argparse.FileType('r'))
@@ -351,7 +351,7 @@ if __name__ == "__main__":
     make_alis = True if args.aliout else False
     hit_mask = args.hit_mask.name if args.hit_mask else None
 
-    df, alis = main(args.infile.name, args.fasta.name, windowed=args.windowed,
+    df, alis = process_genewise(args.infile.name, args.fasta.name, windowed=args.windowed,
         merge=args.merge, merge_distance=args.merge_distance, merge_overlap=args.merge_overlap,
         filter_type=args.filter, hit_mask=hit_mask, bit_cutoff=args.bit_cutoff, length_cutoff=args.length_cutoff,
         out_cols=outcols, make_alis=make_alis)
