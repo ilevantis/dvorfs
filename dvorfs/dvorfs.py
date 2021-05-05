@@ -240,6 +240,7 @@ def run_dvorfs(args):
     else:
         workdir = path.join(args.outdir,f'{args.prefix}.tmp')
     os.makedirs(workdir, exist_ok=True)
+    os.makedirs(args.outdir, exist_ok=True)
 
     if not args.fai:
         args.fai = args.fasta + '.fai'
