@@ -281,10 +281,12 @@ def main():
     parser = argparse.ArgumentParser(description=f"process_genewise.py is part of DVORFS")
 
     parser.add_argument('infile',
-        type=argparse.FileType('r'))
+        type=argparse.FileType('r'),
+        help="""Genewise output file. Genewise must have been run with the `-alb` argument.""")
 
     parser.add_argument('-s', '--fasta',
-        type=argparse.FileType('r'), required=True)
+        type=argparse.FileType('r'), required=True,
+        help="""Exact fasta file that genewise was run with.""")
 
     parser.add_argument('-w', '--windowed',
         action='store_true',
@@ -296,10 +298,12 @@ def main():
                 (Worse hits from same query are removed at overlaps.)""")
 
     parser.add_argument('-d', '--merge-distance',
-        type=int, default=1000)
+        type=int, default=1000,
+        help="""Maximum allowed distance between two hits in the subject sequence (in bp) for them to be merged.""")
 
     parser.add_argument('-o', '--merge-overlap',
-        type=int, default=2)
+        type=int, default=2,
+        help="""Maximum number of positions overlapping in the query pHMM for two hits to be merged.""")
 
     parser.add_argument('-f', '--filter',
         choices=['all', 'no-overlap', 'best-per'], default='no-overlap',
@@ -310,13 +314,16 @@ def main():
         best_per:   Only the highest scoring hit per contig is kept.""")
 
     parser.add_argument('-k','--hit-mask',
-        type=argparse.FileType('r'))
+        type=argparse.FileType('r'),
+        help="""TSV file with 3 columns: 1. name of query, 2. start position of masked region, 3. end position of masked region.""")
 
     parser.add_argument('-b', '--bit-cutoff',
-        type=float, default=15.0)
+        type=float, default=15.0,
+        help="""Minimum bit score for hits to be kept after merging.""")
 
     parser.add_argument('-l', '--length-cutoff',
-        type=int, default=30)
+        type=int, default=30,
+        help="""Minimum number of codons aligned to the query pHMM for hits to be kept after merging.""")
 
     parser.add_argument('-a', '--aaseq',
         action='store_true',
@@ -330,7 +337,8 @@ def main():
         action='store_true')
 
     parser.add_argument('--out',
-        type=argparse.FileType('w'), default=sys.stdout)
+        type=argparse.FileType('w'), default=sys.stdout,
+        help="""Specify output file. By default, output goes to STDOUT.""")
 
     parser.add_argument('--aliout',
         help="""Output an alignment fasta of hits for each HMM with any hits into specified dir.""")
