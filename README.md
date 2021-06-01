@@ -21,11 +21,6 @@ DVORFS is particularly good for EVE mining because:
 
 ## Installation
 
-### Install from bioconda
-```shell
-conda install dvorfs
-```
-
 ### Install latest github version
 Install the latest version from github using conda to install the dependencies:
 ```shell
@@ -71,7 +66,11 @@ dvorfs -f bTaeGut2_pat_W_v2.fasta --seed pfam_hepadnaviridae.sto -p 12 --filter 
 
 ### Output
 
-By default a file named `dvorfs.hits.tsv` is created listing the found hits (positions are BED-style 0-indexed).
+By default a file named `dvorfs.hits.tsv` is created listing the found hits (positions are BED-style 0-indexed). The predicted amino acid sequences also contain some characters with special meanings:
++ `?` - codon containing bp deletion
++ `&` - codon containing bp insertion
++ `!` - nonsense frameshifting insertion between two recognisable codons
++ `x` - runs of `x` denote gaps between two alignment sections, the length is determined by how many positions of the pHMM are missing from the alignment.
 
 Example DVORFS output hit table:
 ```
