@@ -275,10 +275,12 @@ def run_dvorfs(args):
             search_bed = args.bed
 
         # chop search regions into 20kbp windows to stop GW from breaking
+        print("Windowing search regions...", file=sys.stderr)
         windowed_fasta = bed2wdw_fa(search_bed, args.fasta)
 
     else:
         # chop whole genome into 20kbp windows to stop GW from breaking
+        print("Windowing genome...", file=sys.stderr)
         windowed_fasta = genome2wdw_fa(args.fai, args.fasta)
 
     # run GW
