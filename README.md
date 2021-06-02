@@ -21,6 +21,12 @@ DVORFS is particularly good for EVE mining because:
 
 ## Installation
 
+### Use bioconda to install
+
+```shell
+conda install -c bioconda dvorfs
+```
+
 ### Install latest github version
 Install the latest version from github using conda to install the dependencies:
 ```shell
