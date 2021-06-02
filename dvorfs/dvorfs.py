@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-__version__ = '1.0.0'
+__version__ = '1.0.1'
 
 from subprocess import Popen, PIPE, DEVNULL
 import sys, os, shutil, argparse
@@ -110,7 +110,10 @@ def hmmer_pre_search(dbfafai, dbfasta, hmm3db,
 
 
     # replace '$' with ':' again in both nucleotide and translated fasta
-    cmd = ['sed', '-i', '/^>/ s/\$/:/', window_fa_name, tr_fa_name]
+	if os.uname().sysname == "Darwin":
+    	cmd = ['sed', '-i', "''", '/^>/ s/\$/:/', window_fa_name, tr_fa_name]
+	else:
+    	cmd = ['sed', '-i', '/^>/ s/\$/:/', window_fa_name, tr_fa_name]
     p = Popen(cmd)
     exit_code = p.wait()
     if exit_code != 0: raise
